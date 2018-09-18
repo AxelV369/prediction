@@ -1,0 +1,510 @@
+--------------------------------------------------------------
+  rmse = function(datos){
+    sqrt(mean(datos^2))
+  }
+--------------------------------------------------------------
+set.seed(1024)
+
+# adds svm
+library(e1071)
+library(kernlab)
+library(forecast)
+
+# read the dataset
+x <- read.table("clipboard",sep="\t",header=TRUE)
+data_svr <- x %>% as.data.table
+
+#lm formula
+n1 <- names(data_svr[,-1])
+f <- as.formula(paste("dependiente~", paste(n1[!n1 %in% "dependiente"], collapse = " + ")))
+
+
+# # Create a linear regression model
+# model <- lm(f, data_svr)
+# 
+# # summary of linear regression
+# summary(model)
+# 
+# # make a prediction for each X
+# predictedY <- predict(model, data_svr)
+# 
+# # display the predictions
+# plot(data_svr$dependiente, type = "l")
+# points(predictedY, col = "blue", type ="l")
+# 
+# # root mean squared error
+# rmse <- function(error)
+# {
+#   sqrt(mean(error^2))
+# }
+# 
+# error <- model$residuals  # same as data$Y - predictedY
+# predictionRMSE <- rmse(error)   # 5.703778
+
+
+#SVR --------------------------------------------------------------------------------------------------
+#######################################################################################################
+k <- nrow(data_svr)*.7 %>% round
+
+test.svm <- lapply(k:(nrow(data_svr)-1), function(i){
+  
+  index1 <- sample(1:nrow(data_svr), round(0.8*nrow(data_svr)))
+  train_1 <- data_svr[index1,]
+  test_1  <- data_svr[-index1,]
+  
+  #Tune svm_______________________
+  tuneResult.svm <- tune(svm, 
+                         fa,  
+                         data = train_1,
+                         ranges = list(epsilon = seq(0,0.2,0.01), cost = 2^(2:9))
+  ) 
+  tunedModel.svm  <- tuneResult.svm$best.model
+  
+  #Tunes ksvm
+  tuneResult.ksvm <- tune.svm(fa, 
+                              data = train_1, 
+                              cost = 2^(2:8))
+  tunedModel.ksvm  <- tuneResult.ksvm$best.model
+  #ksvm-------
+  #eps-svr
+  ksvm.rbfdot.eps     <- ksvm(fa, data = train_1,  type = "eps-svr", kernel = "rbfdot",     cross = 10)
+  ksvm.polydot.eps    <- ksvm(fa, data = train_1,  type = "eps-svr", kernel = "polydot",    cross = 10)
+  ksvm.vanilladot.eps <- ksvm(fa, data = train_1,  type = "eps-svr", kernel = "vanilladot", cross = 10)
+  ksvm.tanhdot.eps    <- ksvm(fa, data = train_1,  type = "eps-svr", kernel = "tanhdot",    cross = 10)
+  ksvm.laplacedot.eps <- ksvm(fa, data = train_1,  type = "eps-svr", kernel = "laplacedot", cross = 10)
+  ksvm.besseldot.eps  <- ksvm(fa, data = train_1,  type = "eps-svr", kernel = "besseldot",  cross = 10)
+  ksvm.anovadot.eps   <- ksvm(fa, data = train_1,  type = "eps-svr", kernel = "anovadot",   cross = 10)
+  #eps-svr
+  ksvm.rbfdot.nu     <- ksvm(fa, data = train_1,  type = "nu-svr", kernel = "rbfdot",     cross = 10)
+  #ksvm.polydot.nu    <- ksvm(fa, data = train_1,  type = "nu-svr", kernel = "polydot",    cross = 10)
+  #ksvm.vanilladot.nu <- ksvm(fa, data = train_1,  type = "nu-svr", kernel = "vanilladot", cross = 10)
+  ksvm.tanhdot.nu    <- ksvm(fa, data = train_1,  type = "nu-svr", kernel = "tanhdot",    cross = 10)
+  ksvm.laplacedot.nu <- ksvm(fa, data = train_1,  type = "nu-svr", kernel = "laplacedot", cross = 10)
+  ksvm.besseldot.nu  <- ksvm(fa, data = train_1,  type = "nu-svr", kernel = "besseldot",  cross = 10)
+  #ksvm.anovadot.nu   <- ksvm(fa, data = train_1,  type = "nu-svr", kernel = "anovadot",   cross = 10)
+  
+  list.ksvm <- list(ksvm.rbfdot.eps,
+                    ksvm.polydot.eps,
+                    ksvm.vanilladot.eps,
+                    ksvm.tanhdot.eps,
+                    ksvm.laplacedot.eps,
+                    ksvm.besseldot.eps,
+                    ksvm.anovadot.eps,
+                    #eps-svr
+                    ksvm.rbfdot.nu,   
+                    ksvm.polydot.nu,    
+                    ksvm.vanilladot.nu, 
+                    ksvm.tanhdot.nu,
+                    ksvm.laplacedot.nu,
+                    ksvm.besseldot.nu,
+                    ksvm.anovadot.nu,
+                    tunedModel.svm,
+                    tunedModel.ksvm)
+  
+  names(list.ksvm) <- c('ksvm.rbfdot.eps',
+                        'ksvm.polydot.eps',
+                        'ksvm.vanilladot.eps',
+                        'ksvm.tanhdot.eps',
+                        'ksvm.laplacedot.eps',
+                        'ksvm.besseldot.eps',
+                        'ksvm.anovadot.eps',
+                        'ksvm.rbfdot.nu',
+                        'ksvm.polydot.nu',
+                        'ksvm.vanilladot.nu',
+                        'ksvm.tanhdot.nu',
+                        'ksvm.laplacedot.nu',
+                        'ksvm.besseldot.nu',
+                        'ksvm.anovadot.nu',
+                        'tunedModel.svm',
+                        'tunedModel.ksvm'
+  )
+  
+  fore_svm <- function(modelo){
+    retur <- predict(modelo, test_1)
+    return(retur)
+  }
+  models <- lapply(list.ksvm, fore_svm ) %>% as.data.table
+  setnames(models, names(list.ksvm))
+  
+  errors <- test_1$dependiente - models
+  df_errs <- apply(errors, 2, rmse)
+  return(df_errs)
+}) %>% do.call(rbidn,.)
+write.table(aa, "clipboard-256", sep = "|")
+
+
+
+#Neural Net--------------------------------------------------------------------------------------------
+#######################################################################################################
+library(doParallel)
+
+nnt_out <-  lapply(k:(nrow(data_svr)-1), function(p){
+  dat1 <- data_svr[1:p, -1]
+  dat1_test <- data_svr[c(p+1,p+2), ]
+  
+  maxs <- apply(dat1, 2, max) 
+  mins <- apply(dat1, 2, min)
+  
+  data_    <- as.data.frame(scale(dat1, center = mins, scale = maxs - mins))
+  data_tst <- as.data.frame(scale(dat1_test[,-1], center = mins, scale = maxs - mins))
+  
+  cl   <- makeCluster( 30, type = "SOCK")
+  clusterExport(cl = cl, list('data_',
+                              'data_tst',
+                              'f',
+                              'as.data.table', 
+                              'neuralnet', 
+                              'compute', 
+                              'maxs', 
+                              'mins',
+                              '%>%',
+                              'rmse'
+  )
+  )
+  clusterCall(cl, function() library(doParallel))
+  
+  nwk <- parLapply(cl, 1:40, function(i){
+    #New sample:
+    index1 <- sample(nrow(data_), round(0.8*nrow(data_)))
+    train_nn <- data_[index1,]
+    test_nn  <- data_[-index1,]
+    #Hyperparameters:    
+    k  <- 1
+    evl <- matrix(nrow = 400, ncol = 3)
+    for(i in 1:20){
+      for(j in 1:20){
+        
+        nn <- neuralnet(f, data = train_nn, hidden = c(i,j), linear.output = T)
+        sf.nn  <- compute(nn, test_nn[, -length(test_nn)])
+        outt   <- cbind(sf.nn$net.result, test_nn[, length(test_nn)])
+        levels <- outt*(maxs["dependiente"] - mins["dependiente"]) + mins["dependiente"]
+        
+        error <- levels[,1] - levels[,2]  #Evaluación en niveles
+        rms   <-   rmse(error)
+        evl[k, ] <- cbind(i, j, rms)
+        k <- k + 1
+      }
+    }#minimum error:
+    a <- evl[which.min(evl[,3]), 1]  
+    b <- evl[which.min(evl[,3]), 2]
+    #Convergencia para esta muestra 
+    net <- lapply(1:50, function(p){
+      nn <- neuralnet(f, data = data_, hidden = c(a,b), linear.output = T)
+      nn.pr  <- compute(nn, data_tst[, -64 ]) 
+      nn.prt <- nn.pr$net.result %>% as.data.table
+      return(nn.prt)
+    }) %>% as.data.table
+    
+    avg <- apply(net, 1, mean) 
+    prednn <- avg*(maxs["dependiente"] - mins["dependiente"]) + mins["dependiente"] #Levels
+    prednn <- prednn %>% as.data.table
+    return(prednn)                                             #Out
+  }) %>% as.data.table
+  stopCluster(cl)
+  
+  #Convergencia general:
+  neunet <- apply(nwk, 1, mean)
+  out <- data.frame(fecha = dat1_test[,1],  dat1_test[,"dependiente"], neunet)
+  return(out)
+}) %>% do.call(rbind, .)
+
+nnt_out
+write.table(nnt_out, "clipboard-256", sep = "|")
+
+
+#Lasso ------------------------------------------------------------------------------------------------
+#######################################################################################################
+lass <- lapply(100:109, function(p){
+  
+  dat1 <- data_svr[1:p, -1]
+  dat1_test <- data_svr[c(p+1,p+2), ]
+  
+  cl   <- makeCluster( 30, type = "SOCK")
+  clusterExport(cl = cl, list('dat1',
+                              'dat1_test',
+                              'LassoOLS',
+                              'mypredict',
+                              '%>%'))
+  
+  clusterCall(cl, function() library(data.table))
+  las <- parLapply(cl, 1:100, function(i){
+    
+    indexl  <- sample(1:nrow(dat1), round(0.8*nrow(dat1)))
+    train_l <- dat1[indexl, ]
+    test_l  <- dat1[-indexl, ]
+    
+    y.t <- train_l[, "dependiente"] %>% as.matrix
+    x.t <- train_l[, -"dependiente" ] %>% as.matrix
+    obj.laols.2  <- LassoOLS(x.t, y.t, fix.lambda = FALSE)
+    
+    lassout <- mypredict(obj.laols.2, dat1_test[,-c("Fecha","dependiente")])
+    return(lassout)
+  }) %>% do.call(rbind, .)
+  stopCluster(cl)
+  
+  HDC <- data.table(dat1_test[,c("Fecha","dependiente")], colMeans(las))
+  setnames(HDC, c("Fecha", "dependiente", "LASSO"))
+  return(HDC)
+}) %>% bind_rows
+
+lass <- bind_rows(lass)
+write.table(lass, "clipboard-256", sep = "|")
+
+ssj <- read.table("clipboard", header = TRUE)
+mq <- names(ssj)
+
+f3 <- as.formula(paste("dependiente~", paste(mq[!mq %in% "dependiente"], collapse = " + ")))
+fitt <- lm(f3, ssj)
+fitt$fitted.values
+write.table(fitt$fitted.values, "clipboard-256", sep = "|")
+
+
+
+
+
+
+
+
+
+#Final ------------------------------------------------------------------------------------------------
+#######################################################################################################
+final.model <- lapply(k:(nrow(data_svr)-1), function(p){
+  
+  dat1 <- data_svr[1:p, ]
+  dat1_test <- data_svr[c(p+1,p+2), ]
+  
+  #For nn:
+  maxs <- apply(dat1[,-1], 2, max) 
+  mins <- apply(dat1[,-1], 2, min)
+  data_sc    <- as.data.frame(scale(dat1[,-1], center = mins, scale = maxs - mins))
+  data_tst_sc <- as.data.frame(scale(dat1_test[,-1], center = mins, scale = maxs - mins))
+  
+  cl   <- makeCluster( 30, type = "SOCK")
+  clusterExport(cl = cl, list('dat1',
+                              'dat1_test',
+                              'data_sc',
+                              'data_tst_sc',
+                              'tune',
+                              'f',
+                              'svm',
+                              'ksvm',
+                              'tune.svm',
+                              'predict',
+                              'rmse',
+                              'neuralnet', 
+                              'compute', 
+                              'maxs', 
+                              'mins',
+                              'LassoOLS',
+                              'mypredict',
+                              '%>%')
+  )
+  clusterCall(cl, function() library(data.table))
+  #Boost
+  forc <- parLapply(cl, 1:20, function(i){
+    # General Sample
+    index1 <- sample(1:nrow(dat1), round(0.75*nrow(dat1)))
+    train_1 <- dat1[index1, -1]
+    test_1  <- dat1[-index1, -1]
+    # NN sample:
+    train_nn <- data_sc[index1, ]
+    test_nn  <- data_sc[-index1, ]
+    
+    #SVR Seleccionada___________________________________________________________________________________
+    ksvm.vanilladot.nu <- ksvm(f, 
+                               data = train_1,  
+                               type = "nu-svr", 
+                               kernel = "vanilladot", 
+                               cross = 10)
+    tun_ksvm.vanill <- predict(ksvm.vanilladot.nu, test_1[,-"dependiente"]) %>% as.data.table
+    pred.svm <- tun_ksvm.vanill
+    
+    #Neural Net________________________________________________________________________________________
+    #Hyperparameters:   
+    nn <- vector(mode = "list", length = 400)
+    evl <- matrix(nrow = 400, ncol = 3)
+    
+    k  <- 1
+    for(i in 1:20){
+      for(j in 1:20){
+        nn[[k]] <- neuralnet(f, data = train_nn, hidden = c(i,j), linear.output = T)
+        sf.nn  <- compute(nn[[k]], test_nn[, -length(test_nn)])
+        outt   <- cbind(sf.nn$net.result, test_nn[, length(test_nn)])
+        levels <- outt*(maxs["dependiente"] - mins["dependiente"]) + mins["dependiente"]
+        
+        error <- levels[,1] - levels[,2]  #Evaluación en niveles
+        rms   <-   rmse(error)
+        evl[k, ] <- cbind(i, j, rms)
+        k <- k + 1
+      }
+    }#minimum error layer:
+    k.min  <- which.min(evl[,3])
+    k.good <- which( evl[,3] <  (evl[k.min,3 ] + sd(evl[,3])/3))
+    k.max  <- max(evl[k.good, 3])
+    k.best <- which(evl[, 3] == k.max)
+    
+    nn.pr  <- compute(nn[[k.best]], test_nn[, -length(test_nn)]) 
+    nn.prt <- nn.pr$net.result %>% as.data.table
+    pred.nn <- nn.prt*(maxs["dependiente"] - mins["dependiente"]) + mins["dependiente"] #Levels
+    
+    #LASSO______________________________________________________________________________
+    y.t <- train_1[, "dependiente"] %>% as.matrix
+    x.t <- train_1[, -"dependiente" ] %>% as.matrix
+    obj.laols.2  <- LassoOLS(x.t, y.t, fix.lambda = FALSE)
+    lassout <- mypredict(obj.laols.2, test_1[,-"dependiente"])
+    
+    #Regression________________________________________________________________________
+    tst.fore <- data.frame(dat1[-index1, c(1,65) ], pred.svm, pred.nn, lassout)
+    setnames(tst.fore, c("Fecha", "dependiente", "SVR", "NeuralNet", "Lasso"))
+    
+    nr <- names(tst.fore)[-1]
+    f.r <- as.formula(paste("dependiente~", paste(nr[!nr %in% "dependiente"], collapse = " + ")))
+    fit.all <- lm(f.r, tst.fore)
+    fit.lass <- LassoOLS(tst.fore[, -c(1,2)], tst.fore[, 2], fix.lambda = FALSE)
+    
+    ksvm.end.pr <- predict(ksvm.vanilladot.nu, dat1_test[,-"dependiente"]) %>% as.data.table
+    nn.end.pr1 <- compute(nn[[k.best]], data_tst_sc[, -length(data_tst_sc)] ) 
+    nn.end.pr2 <- nn.end.pr1$net.result %>% as.data.table
+    nn.end.pr3 <- nn.end.pr2*(maxs["dependiente"] - mins["dependiente"]) + mins["dependiente"] #Levels
+    lassout.end.pr <- mypredict(obj.laols.2, dat1_test[,-c("Fecha", "dependiente")])
+    
+    predictn <- data.table(dat1_test[,c("Fecha", "dependiente")], 
+                           SVR = ksvm.end.pr, 
+                           NeuralNet= nn.end.pr3, 
+                           Lasso = lassout.end.pr)
+    setnames(predictn, c("Fecha", "dependiente", "SVR", "NeuralNet", "Lasso"))
+    forecst1   <- predict(fit.all, predictn)
+    lassout2   <- mypredict(fit.lass, predictn[, -c(1,2)])
+    
+    final <- data.frame(predictn, forecst1, lassout2)
+    return(final)
+  }) %>% bind_rows %>% as.data.table
+  stopCluster(cl)
+  
+  out <- forc[, lapply(.SD, mean), by = Fecha]
+  return(out)
+}) %>% do.call(rbind, .)
+write.table(final.model, "clipboard", sep = "|", row.names = FALSE)
+
+
+
+
+#Final 2-----------------------------------------------------------------------------------------------
+#######################################################################################################
+final.model.2 <- lapply(k:(nrow(data_svr)-1), function(p){
+    
+    dat1 <- data_svr[1:p, ]
+    dat1_test <- data_svr[c(p+1,p+2), ]
+    
+    #For nn:
+    maxs <- apply(dat1[,-1], 2, max) 
+    mins <- apply(dat1[,-1], 2, min)
+    data_sc    <- as.data.frame(scale(dat1[,-1], center = mins, scale = maxs - mins))
+    data_tst_sc <- as.data.frame(scale(dat1_test[,-1], center = mins, scale = maxs - mins))
+    
+    cl   <- makeCluster(30, type = "SOCK")
+    clusterExport(cl = cl, list('dat1',
+                                'dat1_test',
+                                'data_sc',
+                                'data_tst_sc',
+                                'tune',
+                                'f',
+                                'svm',
+                                'ksvm',
+                                'tune.svm',
+                                'predict',
+                                'rmse',
+                                'neuralnet', 
+                                'compute', 
+                                'maxs', 
+                                'mins',
+                                'LassoOLS',
+                                'mypredict',
+                                '%>%')
+    )
+    clusterCall(cl, function() library(data.table))
+    
+    forc <- parLapply(cl, 1:20, function(i){
+      # General Sample
+      index1 <- sample(1:(nrow(dat1)-10), round(0.75*(nrow(dat1)-10)))
+      train_1 <- dat1[index1, -1]
+      test_1  <- dat1[-index1, -1]
+      # NN sample:
+      train_nn <- data_sc[index1, ]
+      test_nn  <- data_sc[-index1, ]
+      
+      #SVR______________________________________________________________________________________________
+      ksvm.vanilladot.nu <- ksvm(f, 
+                                 data = train_1,  
+                                 type = "nu-svr", 
+                                 kernel = "vanilladot", 
+                                 cross = 10)
+      tun_ksvm.vanill <- predict(ksvm.vanilladot.nu, test_1[,-"dependiente"]) %>% as.data.table
+      pred.svm <- tun_ksvm.vanill
+      
+      #Neural Net________________________________________________________________________________________
+      #Hyperparameters:   
+      nn <- vector(mode = "list", length = 400)
+      evl <- matrix(nrow = 400, ncol = 3)
+      
+      k  <- 1
+      for(i in 1:20){
+        for(j in 1:20){
+          nn[[k]] <- neuralnet(f, data = train_nn, hidden = c(i,j), linear.output = T)
+          sf.nn  <- compute(nn[[k]], test_nn[, -length(test_nn)])
+          outt   <- cbind(sf.nn$net.result, test_nn[, length(test_nn)])
+          levels <- outt*(maxs["dependiente"] - mins["dependiente"]) + mins["dependiente"]
+          
+          error <- levels[,1] - levels[,2]  #Evaluación en niveles
+          rms   <-   rmse(error)
+          evl[k, ] <- cbind(i, j, rms)
+          k <- k + 1
+        }
+      }#minimum error layer:
+      k.min  <- which.min(evl[,3])
+      k.good <- which( evl[,3] <  (evl[k.min,3 ] + sd(evl[,3])/3))
+      k.max  <- max(evl[k.good, 3])
+      k.best <- which(evl[, 3] == k.max)
+      
+      nn.pr  <- compute(nn[[k.best]], test_nn[, -length(test_nn)]) 
+      nn.prt <- nn.pr$net.result %>% as.data.table
+      pred.nn <- nn.prt*(maxs["dependiente"] - mins["dependiente"]) + mins["dependiente"] #Levels
+      
+      #LASSO______________________________________________________________________________
+      y.t <- train_1[, "dependiente"] %>% as.matrix
+      x.t <- train_1[, -"dependiente" ] %>% as.matrix
+      obj.laols.2  <- LassoOLS(x.t, y.t, fix.lambda = FALSE)
+      lassout <- mypredict(obj.laols.2, test_1[,-"dependiente"])
+      
+      #Regression________________________________________________________________________
+      tst.fore <- data.frame(dat1[-index1, c(1,65) ], pred.svm, pred.nn, lassout)
+      setnames(tst.fore, c("Fecha", "dependiente", "SVR", "NeuralNet", "Lasso"))
+      
+      nr <- names(tst.fore)[-1]
+      f.r <- as.formula(paste("dependiente~", paste(nr[!nr %in% "dependiente"], collapse = " + ")))
+      fit.all <- lm(f.r, tst.fore)
+      fit.lass <- LassoOLS(tst.fore[, -c(1,2)], tst.fore[, 2], fix.lambda = FALSE)
+      
+      ksvm.end.pr <- predict(ksvm.vanilladot.nu, dat1_test[,-"dependiente"]) %>% as.data.table
+      nn.end.pr1 <- compute(nn[[k.best]], data_tst_sc[, -length(data_tst_sc)] ) 
+      nn.end.pr2 <- nn.end.pr1$net.result %>% as.data.table
+      nn.end.pr3 <- nn.end.pr2*(maxs["dependiente"] - mins["dependiente"]) + mins["dependiente"] #Levels
+      lassout.end.pr <- mypredict(obj.laols.2, dat1_test[,-c("Fecha", "dependiente")])
+      
+      predictn <- data.table(dat1_test[,c("Fecha", "dependiente")], 
+                             SVR = ksvm.end.pr, 
+                             NeuralNet= nn.end.pr3, 
+                             Lasso = lassout.end.pr)
+      setnames(predictn, c("Fecha", "dependiente", "SVR", "NeuralNet", "Lasso"))
+      forecst1   <- predict(fit.all, predictn)
+      lassout2   <- mypredict(fit.lass, predictn[, -c(1,2)])
+      
+      final <- data.frame(predictn, forecst1, lassout2)
+      return(final)
+    }) %>% bind_rows %>% as.data.table
+    stopCluster(cl)
+    
+    out <- forc[, lapply(.SD, mean), by = Fecha]
+    return(out)
+}) %>% do.call(rbind, .)
+write.table(final.model, "clipboard", sep = "|", row.names = FALSE)

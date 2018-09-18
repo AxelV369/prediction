@@ -1,0 +1,67 @@
+library(magrittr)
+library(dplyr)
+library(parallel)
+library(data.table)
+
+n <- detectCores()-1
+cl <- makeCluster(n, type="SOCK")
+ 
+options(warn=1)
+file <- parLapply(cl, 1:30, function(x){
+                                        a <- fread(file.path(dir,x))
+                                        colnames(a) <- c()
+                                        return(a)
+                                        }
+                                       ) %>% do.call(., rbind)
+
+#HDCI---------------------------------------------------------------------------
+library(data.table)
+library(HDCI)
+library(glmnet)
+
+nw <- file
+row.names(nw) <- nw$Fecha
+
+k <- nrow(nw)*.70 %>% round
+x.nw <- as.matrix(nw[1:k-1,3:ncol(nw)])
+y.nw <- as.matrix(nw[1:k-1,2])
+
+bound <- rep(k:nrow(nw))
+Pred <- lapply(bound, function(z) {
+  
+  x.nw <- as.matrix(nw[1:z-1,3:ncol(nw)])
+  y.nw <- as.matrix(nw[1:z-1,2])
+  
+  colnames(y.nw) <- "Dependiente"
+  rownames(y.nw) <- rownames(x.nw)
+    
+  obj.cv.glm <- cv.glmnet(x.nw, y.nw)
+  obj.escv.glm <- escv.glmnet(x.nw, y.nw, cv.OLS = TRUE)
+  obj.laols <- LassoOLS(x.nw, y.nw, lambda = obj.escv$lambda.cv)
+  obj.laols.1 <- LassoOLS(x.nw, y.nw, fix.lambda = FALSE)
+  obj.laols.2 <- LassoOLS(x.nw, y.nw, fix.lambda = FALSE, cv.OLS = FALSE)
+  obj.laols.3 <- LassoOLS(x.nw, y.nw, fix.lambda = FALSE, cv.OLS = TRUE)
+  obj.laols.3 <- LassoOLS(x.nw, y.nw, fix.lambda = FALSE, cv.OLS = TRUE)
+  obj.boot <- bootLassoOLS(y=y.nw, x=x.nw,B=500, OLS = TRUE)
+  
+  #Prediction Matrix
+  Interv <- z
+  q <- as.matrix(nw[Interv,3:ncol(nw)])
+  
+  #Predicciones
+  p1<- predict(obj.cv.glm, q, s = "lambda.min")
+  p2<- mypredict(obj.laols, q)
+  p3<- mypredict(obj.laols.1, q)
+  p4<- mypredict(obj.laols.2, q)
+  p5<- mypredict(obj.laols.3, q)
+  p6<- q %*% bl$Beta.LassoOLS 
+  p7<- q %*% bl$Beta.Lasso 
+
+  a[2*(z-91)-1,] <- matrix(cbind(p1,p2,p3,p4,p5,p6,p7), ncol =7, nrow =2)[1,]
+  a[2*(z-91),] <- matrix(cbind(p1,p2,p3,p4,p5,p6,p7), ncol =7, nrow =2)[2,]
+
+  #fechas <- rbind(fechas, rownames(q)[1], rownames(q)[2])
+  colnames(a) <- c("glmet", "LaOLS","LaOLS1", "LaOLS2", "LaOLS3", "BootLaOLS", "BootLa")
+  
+  return(a)
+}) %>% bind_rows()
